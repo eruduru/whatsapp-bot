@@ -6,7 +6,7 @@
     "dev:api": "pnpm --filter api dev",
     "dev:web": "pnpm --filter web dev",
     "build": "prisma generate && pnpm --filter api build",
-    "start": "node apps/api/dist/index.js",
+    "start": "prisma migrate deploy && pnpm db:seed && node apps/api/dist/index.js",
     "build:api": "pnpm --filter api build",
     "build:web": "pnpm --filter web build",
     "db:generate": "prisma generate",
