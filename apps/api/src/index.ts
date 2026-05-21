@@ -6,6 +6,7 @@ import { authRouter } from './routes/auth.js';
 import { leadsRouter } from './routes/leads.js';
 import { configRouter } from './routes/config.js';
 import { streamRouter } from './routes/stream.js';
+import { ensureBotConfig } from './lib/bootstrap.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -21,6 +22,15 @@ app.use('/leads', leadsRouter);
 app.use('/config', configRouter);
 app.use('/stream', streamRouter);
 
-app.listen(PORT, () => {
-  console.log(`API listening on http://localhost:${PORT}`);
-});
+async function start() {
+  try {
+    await ensureBotConfig();
+  } catch (err) {
+    console.error('Bootstrap failed (continuing anyway):', err);
+  }
+  app.listen(PORT, () => {
+    console.log(`API listening on port ${PORT}`);
+  });
+}
+
+start();
