@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../apps/api/src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id            String    @id @default(cuid())
+  phone         String    @unique
+  name          String?
+  stage         Stage     @default(GREEN)
+  stageReason   String?
+  source        String?
+  botPaused     Boolean   @default(false)
+  notifiedHot   Boolean   @default(false)
+  notes         String?
+  lastInboundAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  messages      Message[]
+}
+
+enum Stage {
+  GREEN
+  YELLOW
+  RED
+  BLUE
+}
+
+model Message {
+  id         String    @id @default(cuid())
+  leadId     String
+  lead       Lead      @relation(fields: [leadId], references: [id])
+  direction  Direction
+  body       String
+  whatsappId String?   @unique
+  sentBy     SentBy    @default(BOT)
+  createdAt  DateTime  @default(now())
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum SentBy {
+  BOT
+  OWNER
+}
+
+model BotConfig {
+  id             String   @id @default("singleton")
+  brandName      String
+  brandVoice     String
+  offers         Json
+  instructions   String
+  ownerPhone     String
+  handoffMessage String
+  updatedAt      DateTime @updatedAt
+}
+
+model AiLog {
+  id        String   @id @default(cuid())
+  leadId    String?
+  kind      String
+  model     String
+  input     Json
+  output    Json
+  latencyMs Int
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,13 @@
+﻿{
+    "permissions":  {
+                        "allow":  [
+                                      "PowerShell(Get-ChildItem*)",
+                                      "PowerShell(Get-Content*)",
+                                      "PowerShell(vercel ls*)",
+                                      "PowerShell(vercel logs*)",
+                                      "PowerShell(vercel env ls*)",
+                                      "mcp__claude_ai_Google_Drive__search_files",
+                                      "mcp__plugin_buildpartner_tools__get_expert_knowledge"
+                                  ]
+                    }
+}
