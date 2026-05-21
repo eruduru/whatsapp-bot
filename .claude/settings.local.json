@@ -23,7 +23,12 @@
       "PowerShell($r = Invoke-WebRequest -Uri \"http://localhost:3001/health\" -UseBasicParsing; $r.StatusCode; $r.Content)",
       "PowerShell($body = '{\"email\":\"admin@example.com\",\"password\":\"admin123\"}'; $r = Invoke-WebRequest -Uri \"http://localhost:3001/auth/login\" -Method POST -Body $body -ContentType \"application/json\" -UseBasicParsing; $r.StatusCode; \\($r.Content | ConvertFrom-Json\\).token.Substring\\(0,30\\) + \"...\")",
       "PowerShell($pgBin = \"C:\\\\Program Files\\\\PostgreSQL\\\\17\\\\bin\"; $env:PGPASSWORD = \"postgres\"; & \"$pgBin\\\\psql.exe\" -h 127.0.0.1 -U postgres -d whatsapp_lead_bot -c \"UPDATE \\\\`\"BotConfig\\\\`\" SET \\\\`\"ownerPhone\\\\`\" = '4917641239849' WHERE id = 'singleton';\" 2>&1)",
-      "PowerShell(Get-Process *)"
+      "PowerShell(Get-Process *)",
+      "Bash(grep -E \"\\\\.env\\(\\\\s|$\\)\")",
+      "Bash(git commit *)",
+      "Bash(git branch *)",
+      "Bash(git remote *)",
+      "Bash(git add *)"
     ]
   }
 }

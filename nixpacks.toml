@@ -1,0 +1,17 @@
+providers = ['node']
+
+[variables]
+NIXPACKS_NODE_VERSION = '22'
+NPM_CONFIG_PRODUCTION = 'false'
+
+[phases.install]
+cmds = [
+  'npm install -g pnpm@11.1.3',
+  'pnpm install --frozen-lockfile'
+]
+
+[phases.build]
+cmds = ['pnpm build']
+
+[start]
+cmd = 'pnpm prisma migrate deploy && pnpm db:seed && pnpm start'
