@@ -1,77 +1,88 @@
 # Handover — for next session
 
-**Last session ended:** 2026-05-22
+**Last session ended:** 2026-05-22 (evening)
 
 ---
 
 ## TL;DR
 
-We just migrated the bot from Gupshup to **Meta WhatsApp Cloud API direct**. End-to-end test passed: WhatsApp message → Meta → Railway → Groq AI → reply back to phone ✅.
-
-The bot is **alive but on a borrowed clock**. The Meta access token currently in Railway is a 24-hour temp token, so within a day of the last session it will start failing with `Authentication Error 190`.
+The bot works end-to-end with a permanent token. We're now in the middle of **switching the sender from Meta's test number to the real number `+91 85472 80316`**. The phone number has been added to the WhatsApp app in Meta — we're waiting on the SMS verification code, which hadn't arrived when the session ended.
 
 ---
 
 ## State right now
 
-- ✅ Code: switched from Gupshup to Meta Cloud API. Committed and pushed (commit `36f4abc`).
-- ✅ Railway: deployed. Env vars `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` all set.
-- ✅ Meta: app `tgp-bot` configured. Webhook callback URL + verify token + `messages` subscription all wired.
-- ✅ Working: GREEN flow tested with `hi` → bot replied.
-- ❌ Not yet: YELLOW / RED / BLUE flow testing, real customer-facing number, brand voice customization.
+- ✅ Code: stable. Whitespace-in-token bug fixed (`apps/api/src/services/whatsapp.ts` now uses `.replace(/\s+/g, '')` instead of `.trim()` — embedded newlines from copy-paste were breaking the Authorization header). Pushed as `9a22b2c`.
+- ✅ Railway: deployed, online. All env vars set with clean values.
+- ✅ Meta token: **permanent System User token** is in Railway. No more 24h expiry.
+- ✅ End-to-end test: WhatsApp message → bot reply works on the test number.
+- 🟡 Real number: `+91 85472 80316` added in Meta API Setup, SMS verification code did not arrive. 55-minute retry timer was running at end of session.
+- ❌ Not yet: phone display name set, webhook subscribed to new number, Phone Number ID updated in Railway.
 
 ---
 
 ## Pick up here
 
-### 1. URGENT (within 24h of last session) — get a permanent access token
-The 24h temp token will expire and the bot will stop sending replies.
+### 1. Finish verifying the real number `+91 85472 80316`
 
-**Quick fix (buy another 24h):** Meta → `tgp-bot` → WhatsApp → API Setup → click "Generate access token" → paste into Railway `WHATSAPP_ACCESS_TOKEN` → deploy.
+The SMS code never came. When you come back:
 
-**Permanent fix:** Generate a System User token in Meta Business Manager (Business settings → System users → Add). Grant it `whatsapp_business_messaging` + `whatsapp_business_management` permissions. Tokens from System Users never expire.
+1. Go to Meta → tgp-bot app → WhatsApp → **API Setup**.
+2. Open the phone number's verification dialog.
+3. If the 55-min timer is up, click **"enter a different number"** to reset, then re-add `+91 85472 80316`.
+4. This time pick **voice call verification** instead of SMS — Indian carrier SMS is unreliable for Meta verification codes.
+5. Answer the call, listen for the 6-digit code, enter it.
 
-### 2. Test the other lead stages
-Only GREEN is verified. From the test phone (the one whitelisted as test recipient), try:
-- **YELLOW**: "What's the price?" / "Am I eligible?" — bot should answer.
-- **RED**: "I want to buy" / "Where do I pay?" — bot should send the handoff message, pause itself, and 🔥 ping the owner phone (`+49 17641239849` in current BotConfig).
-- **BLUE**: "not interested" / "stop messaging" — bot should go silent.
+If voice call also fails, troubleshooting checklist:
+- The user already deleted WhatsApp from this number — that's done, not the issue.
+- Confirm the number can receive normal SMS/calls from other senders (rule out carrier-side block).
+- Try again after a few hours — Meta sometimes rate-limits silently per number.
 
-If any flow misbehaves, the AI prompt in `apps/api/src/services/ai.ts` is the place to tune.
+### 2. After verification — set display name
 
-### 3. Customize the bot's voice + offers
-Open the dashboard at `localhost:3000` → Settings page. Replace the placeholder brand voice, instructions, and offers with real ones (real prices, real links). **The bot only mentions offers that are in this list** — empty list means it won't pitch anything.
+Meta will ask for a **display name** for the number. This is what recipients see. Pick something like "The German Portal" (matches the brand). Meta has to approve it — takes a few minutes to a few hours.
 
-### 4. Rotate the obvious test creds before going live
-- `JWT_SECRET` is `tgp_dev_jwt_secret_change_me_b59f3e2c` — replace with 32+ char random.
-- Dashboard password is `admin123` — regenerate bcrypt hash via `node -e "require('./node_modules/bcryptjs').hash('YOUR_NEW_PASSWORD', 12).then(h => console.log(h))"`.
+### 3. Wire the new number into the bot
 
-### 5. The path to a real customer-facing number
-The current sender is Meta's test number (`+1 555 642 6683`). Real launch needs:
-1. Business verification in Meta Business Manager (1-3 day approval, needs business documents)
-2. Add a real phone number to the WABA + OTP-verify it (number must have no existing WhatsApp, or delete WhatsApp from it first)
-3. Display name "The German Portal" approval (1-2 day separate review)
-4. Credit card on file with Meta for billing
+Once verified:
+
+1. In Meta API Setup, copy the **Phone Number ID** for the new number (it's a long numeric string, NOT the phone number itself).
+2. Open Railway → whatsapp-bot service → Variables → edit `WHATSAPP_PHONE_NUMBER_ID` → paste the new ID → save.
+3. Railway will auto-redeploy.
+4. In Meta API Setup → **Webhooks** → make sure the new number is subscribed to `messages` events (same webhook URL and verify token as before).
+5. Send a WhatsApp message to `+91 85472 80316` from a different phone. Bot should reply.
+
+### 4. Still on the to-do list (from previous handover, not done yet)
+
+- Test YELLOW / RED / BLUE flows (only GREEN was tested).
+  - YELLOW: "What's the price?" / "Am I eligible?"
+  - RED: "I want to buy" / "Where do I pay?" — bot should send handoff and ping owner.
+  - BLUE: "not interested" / "stop" — bot should go silent.
+- Customize bot voice + real offers at dashboard `localhost:3000` → Settings.
+- Rotate test creds before public launch:
+  - `JWT_SECRET` (currently `tgp_dev_jwt_secret_change_me_b59f3e2c`)
+  - Dashboard password (currently `admin123`)
+- Add payment method in Meta (required for sending to numbers outside the test recipient list).
 
 ---
 
-## Things future-you should know (and not relearn the hard way)
+## Things future-you should know
 
-- **The Meta developer account is a SECONDARY Facebook account.** The user's primary FB is restricted from `developers.facebook.com` — we worked around it by creating an alt. Don't suggest using the primary account.
-- **Don't go back to Gupshup.** User had wallet/verification trauma. Switching BSPs was a deliberate decision, not a code preference. AiSensy was also considered and ruled out (campaign-only API on cheap tier, Pro plan is expensive).
-- **Webhook signature verification requires the raw body**, captured in `index.ts` via `express.json({ verify: ... })`. If you ever swap to a different body parser, you'll silently break signature checks.
-- **Prisma client is in `apps/api/src/generated/prisma/`**, NOT the default `@prisma/client`. Import from `'../generated/prisma/index.js'`. Build script copies it to `dist/`.
-- **The user prefers short, plain-language answers.** No tables, no caveats, no "future considerations" asides. Numbered steps, one short sentence each. See `~/.claude/projects/.../memory/feedback_communication_style.md`.
-- **Railway CLI auth via API token didn't work** in last session (token kept returning Unauthorized). User did vars manually via browser raw editor. If you try again, account tokens go to `RAILWAY_API_TOKEN`, project tokens go to `RAILWAY_TOKEN`.
+- **`.trim()` is NOT enough for Meta env vars.** Pasted tokens can have embedded `\n` or `\r` in the middle — Railway preserves them. Always use `.replace(/\s+/g, '')` on tokens/IDs that go into HTTP headers. Already fixed in `whatsapp.ts`.
+- **The Meta developer account is a SECONDARY Facebook account.** User's primary FB is restricted from `developers.facebook.com`. Don't suggest the primary account.
+- **The number `+91 85472 80316` had WhatsApp on it, deleted today (2026-05-22).** Should not interfere with Cloud API onboarding, but if Meta acts weird, give it 24 hours for the number to fully release from regular WhatsApp.
+- **Don't go back to Gupshup.** Migration to Meta Cloud direct was deliberate.
+- **Prisma client lives at `apps/api/src/generated/prisma/`**, not `@prisma/client`. Import from `'../generated/prisma/index.js'`.
+- **Webhook HMAC needs raw body** — captured in `index.ts` via `express.json({ verify: ... })`. Don't swap body parsers.
+- **User prefers short, plain-language answers.** No tables, no caveats, no "future considerations." Numbered steps, one short sentence each.
+- **Railway builds can take 10+ min when their queue is backed up.** Empty commit (`git commit --allow-empty -m "trigger rebuild"`) is a reliable way to retrigger.
 
 ---
 
-## Files changed in last session (for context)
+## Recent commits (this session)
 
-- `apps/api/src/services/whatsapp.ts` — full rewrite, Meta Graph API
-- `apps/api/src/routes/webhook.ts` — full rewrite, Meta inbound format + HMAC
-- `apps/api/src/index.ts` — added raw body capture for HMAC
-- `.env.example` — env var names
-- `PROJECT.md` — full refresh
-
-Commit: `36f4abc — feat: switch WhatsApp BSP from Gupshup to Meta Cloud API direct`
+- `f9a8b16` — chore: trigger rebuild (empty)
+- `9a22b2c` — fix: strip all whitespace from WhatsApp env vars, not just edges
+- `b7ef312` — fix: trim WhatsApp env vars to strip whitespace from copy-paste
+- `fc49814` — docs: refresh PROJECT.md for Meta Cloud API direct, add HANDOVER.md
+- `36f4abc` — feat: switch WhatsApp BSP from Gupshup to Meta Cloud API direct
