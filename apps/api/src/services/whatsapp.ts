@@ -1,6 +1,6 @@
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
-const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
-const GRAPH_VERSION = process.env.WHATSAPP_GRAPH_VERSION ?? 'v21.0';
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!.trim();
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!.trim();
+const GRAPH_VERSION = (process.env.WHATSAPP_GRAPH_VERSION ?? 'v21.0').trim();
 
 export async function sendWhatsApp(toPhone: string, text: string): Promise<void> {
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`;
