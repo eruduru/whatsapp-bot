@@ -1,7 +1,7 @@
 # WhatsApp Lead Bot — Project Status
 
-**Last updated:** 2026-05-21
-**Status:** ✅ Live in Gupshup sandbox, not yet Live for real customers
+**Last updated:** 2026-05-22
+**Status:** ✅ Live on Meta WhatsApp Cloud API direct (test mode). End-to-end working. Not yet on real customer-facing number.
 
 ---
 
@@ -26,8 +26,11 @@ An AI-powered WhatsApp bot for **The German Portal** (Aravind's business helping
 | Postgres | Railway internal (managed automatically) |
 | Local code | `C:\Users\Aravind\automations` |
 | Dashboard (local) | http://localhost:3000 |
-| Gupshup dashboard | https://apps.gupshup.io/whatsapp/dashboard |
+| Meta for Developers | https://developers.facebook.com → app: `tgp-bot` |
+| Meta Business Manager | https://business.facebook.com → portfolio: `Tgp` |
 | Groq console | https://console.groq.com |
+
+> **Heads up:** the Meta developer account is a *secondary* Facebook account created to bypass a developer-platform restriction on the primary account. Don't lose access to it. Long-term, business verification (when ready to go live with a real number) may need the real Business Manager linked to this app.
 
 ---
 
@@ -37,7 +40,7 @@ An AI-powered WhatsApp bot for **The German Portal** (Aravind's business helping
 - **Frontend**: Next.js 16 + Tailwind 4 (runs locally on laptop, points to Railway API)
 - **Database**: PostgreSQL via Prisma ORM (Railway managed)
 - **AI**: Groq `openai/gpt-oss-120b`, `reasoning_effort: 'low'`
-- **WhatsApp**: Gupshup (sandbox right now, will switch to real number on Go Live)
+- **WhatsApp**: Meta WhatsApp Business Cloud API **direct** (no BSP). Currently in test mode with a Meta-provided test sender number; will be a real number after business verification + display name approval.
 - **Hosting**: Railway (api + Postgres)
 - **Auth**: Single-user JWT, bcrypt password hash
 
@@ -50,7 +53,7 @@ automations/
 ├── apps/
 │   ├── api/                  # Express backend (deployed to Railway)
 │   │   ├── src/
-│   │   │   ├── index.ts      # Entry point — boots Express, auto-seeds BotConfig
+│   │   │   ├── index.ts      # Boots Express, raw-body capture for HMAC, auto-seeds BotConfig
 │   │   │   ├── lib/
 │   │   │   │   ├── prisma.ts # Imports generated client from ../generated/prisma
 │   │   │   │   ├── groq.ts
@@ -58,13 +61,13 @@ automations/
 │   │   │   │   └── bootstrap.ts # Ensures default BotConfig exists at startup
 │   │   │   ├── middleware/auth.ts
 │   │   │   ├── routes/
-│   │   │   │   ├── webhook.ts # Gupshup v2 inbound webhook
+│   │   │   │   ├── webhook.ts # Meta Cloud API webhook (GET verify + POST inbound + HMAC)
 │   │   │   │   ├── auth.ts
 │   │   │   │   ├── leads.ts
 │   │   │   │   ├── config.ts
 │   │   │   │   └── stream.ts  # SSE endpoint
 │   │   │   ├── services/
-│   │   │   │   ├── whatsapp.ts # Gupshup send
+│   │   │   │   ├── whatsapp.ts # Meta Graph API send (v21.0)
 │   │   │   │   ├── ai.ts       # classify + respond
 │   │   │   │   └── pipeline.ts # full inbound pipeline
 │   │   │   └── generated/prisma/  # auto-generated Prisma client (gitignored)
@@ -91,27 +94,32 @@ automations/
 ├── .env.example
 ├── .nvmrc                    # Node 22
 ├── package.json              # workspace root
-└── PROJECT.md                # this file
+├── PROJECT.md                # this file (long-term reference)
+└── HANDOVER.md               # session-to-session notes
 ```
 
 ---
 
 ## Credentials reference
 
-All secrets live in `.env` (gitignored) for local + Railway env vars for prod. Current values:
+All secrets live in `.env` (gitignored) for local + Railway env vars for prod.
 
 | Key | Value (or where to find it) |
 |---|---|
 | `GROQ_API_KEY` | In `.env` and on Railway. From console.groq.com |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` |
-| `GUPSHUP_API_KEY` | In `.env` and on Railway. From Gupshup app settings |
-| `GUPSHUP_APP_NAME` | `germanportalbot` |
-| `GUPSHUP_SOURCE_NUMBER` | `917834811114` (sandbox — change after Go Live) |
+| `WHATSAPP_PHONE_NUMBER_ID` | `1170849442771686` (test sender, +1 555 642 6683). Get from Meta → WhatsApp → API Setup |
+| `WHATSAPP_ACCESS_TOKEN` | **Temporary 24h token** — regenerate from Meta API Setup → "Generate access token". Will switch to a System User permanent token before launch. |
+| `WHATSAPP_APP_SECRET` | `71fa3474b30bc6f468f0ae7cedddeaec` — from Meta → App settings → Basic |
+| `WHATSAPP_VERIFY_TOKEN` | `tgpbot` — chosen by us, also pasted into Meta → WhatsApp → Configuration → Webhook |
+| `WHATSAPP_GRAPH_VERSION` | `v21.0` (optional, defaults to this) |
 | `DATABASE_URL` | Local: `postgresql://postgres:postgres@127.0.0.1:5432/whatsapp_lead_bot`. Railway: `${{Postgres.DATABASE_URL}}` |
-| `JWT_SECRET` | Anything random. Currently `tgp_dev_jwt_secret_change_me_b59f3e2c` — **rotate before going live** |
+| `JWT_SECRET` | `tgp_dev_jwt_secret_change_me_b59f3e2c` — **rotate before going live** |
 | `DASHBOARD_USER_EMAIL` | `admin@example.com` |
 | `DASHBOARD_USER_PASSWORD_HASH` | bcrypt of `admin123` — **change before going live** |
 | `DASHBOARD_URL` | `https://whatsapp-bot-production-7365.up.railway.app` (used in hot-lead pings) |
+
+> Old Gupshup vars (`GUPSHUP_API_KEY`, `GUPSHUP_APP_NAME`, `GUPSHUP_SOURCE_NUMBER`) may still be on Railway. They are no longer referenced by code — safe to delete, but harmless to leave.
 
 ---
 
@@ -121,12 +129,14 @@ All secrets live in `.env` (gitignored) for local + Railway env vars for prod. C
 - pnpm monorepo (workspace packages: api, web, shared)
 - Prisma schema with Lead, Message, BotConfig, AiLog models
 - TypeScript strict mode
-- Local PostgreSQL 17 (installed via winget, runs as user process)
+- Local PostgreSQL 17
 
 ### Phase 2 — Backend ✅
 - Express API with: webhook, auth (JWT + bcrypt), leads CRUD, config CRUD, SSE stream
-- Gupshup v2 webhook parsing (was originally Meta, switched mid-build)
-- Gupshup send via REST API
+- Originally Meta → switched to Gupshup mid-build → **switched back to Meta Cloud API direct on 2026-05-22**
+- Webhook: handles Meta's `GET` verification challenge + `POST` inbound (entry → changes → value → messages)
+- Send: `POST graph.facebook.com/v21.0/{phone_number_id}/messages` with Bearer token
+- HMAC SHA-256 signature verification against `X-Hub-Signature-256` header using App Secret
 - Groq classifier + responder (both `reasoning_effort: 'low'`)
 - Full pipeline: classify → handle BLUE / handle RED transition (handoff + pause + owner ping) / normal reply
 - All AI calls logged to `AiLog` table
@@ -142,38 +152,47 @@ All secrets live in `.env` (gitignored) for local + Railway env vars for prod. C
 ### Phase 4 — Deploy ✅
 - Code pushed to GitHub (`eruduru/whatsapp-bot`)
 - Railway project created with api service + Postgres
-- Build/start chain works: install → prisma generate → tsc → copy generated to dist → migrate → start
-- API live and verified responding at `/health`
+- Build/start chain: install → prisma generate → tsc → copy generated to dist → migrate → start
+- API live and verified at `/health`
 - Auto-bootstrap creates default BotConfig on first run
 
 ### Phase 5 — Wiring ✅
-- Gupshup webhook configured pointing at Railway URL with Gupshup v2 format
-- End-to-end tested: WhatsApp message → Gupshup → Railway API → Groq AI → reply back to phone
-- First successful test was GREEN flow: "Hi" → "Hello! 👋 How can I assist you with your German career plans today?"
+- Meta `tgp-bot` app created on alt Facebook account
+- WhatsApp product added; test sender + test recipient configured
+- Webhook URL set to `/webhook/whatsapp` with verify token `tgpbot`
+- Subscribed to `messages` field
+- End-to-end tested **2026-05-22**: WhatsApp from test phone → Meta → Railway API → Groq AI → reply back ✅
 
 ---
 
 ## Known gotchas / decisions made
 
-1. **Prisma client output is custom**: `apps/api/src/generated/prisma/`. This is because pnpm workspaces don't reliably regenerate `@prisma/client` across packages. Importing from `'@prisma/client'` will NOT work in this codebase — use the relative path `'../generated/prisma/index.js'`.
+1. **Meta access token is currently TEMPORARY (24h).** When the bot stops replying with `Authentication Error code 190`, regenerate from Meta → WhatsApp → API Setup → "Generate access token", paste into Railway as `WHATSAPP_ACCESS_TOKEN`, redeploy. This is fine for testing; for launch we need a permanent System User token (see TODO list).
 
-2. **Generated client must be copied to dist**: The api build script does this:
+2. **Webhook needs the raw request body** for HMAC verification. `index.ts` configures `express.json({ verify: (req,_,buf) => { req.rawBody = buf } })`. Don't replace with a plain `express.json()` — signature checks will fail.
+
+3. **Prisma client output is custom**: `apps/api/src/generated/prisma/`. Because pnpm workspaces don't reliably regenerate `@prisma/client` across packages. Importing from `'@prisma/client'` will NOT work — use the relative path `'../generated/prisma/index.js'`.
+
+4. **Generated client must be copied to dist**: The api build script does this:
    ```
    tsc && node -e "require('fs').cpSync('src/generated','dist/generated',{recursive:true})"
    ```
-   If you change the build process, make sure this copy step survives.
 
-3. **Node version pinned to 22.x**: Node 24 has a corepack ESM bug. Don't bump.
+5. **Node version pinned to 22.x**: Node 24 has a corepack ESM bug. Don't bump.
 
-4. **Seed runs at API startup, not as a pnpm script**: Originally `pnpm db:seed` ran `node --import tsx/esm prisma/seed.ts`, but tsx + Node 22 crashed with `ERR_REQUIRE_CYCLE_MODULE`. Solution: `apps/api/src/lib/bootstrap.ts` creates default BotConfig if missing, called from `index.ts` at startup.
+6. **Seed runs at API startup**: `apps/api/src/lib/bootstrap.ts` creates default BotConfig if missing. Originally tried `pnpm db:seed` but tsx + Node 22 crashed with `ERR_REQUIRE_CYCLE_MODULE`.
 
-5. **Express types**: Routes use `IRouter` annotation to dodge a pnpm `TS2742` portability error. Don't remove the type annotations.
+7. **Express types**: Routes use `IRouter` annotation to dodge a pnpm `TS2742` portability error. Don't remove the type annotations.
 
-6. **SSE auth via query param**: `EventSource` can't set headers, so `/stream` accepts the JWT via `?token=...`. Other endpoints use the `Authorization: Bearer` header.
+8. **SSE auth via query param**: `EventSource` can't set headers, so `/stream` accepts the JWT via `?token=...`. Other endpoints use the `Authorization: Bearer` header.
 
-7. **Railway uses Railpack (not Nixpacks)**: Don't add a `nixpacks.toml` — it'll be ignored. Build config lives in `package.json` scripts.
+9. **Railway uses Railpack (not Nixpacks)**: Don't add a `nixpacks.toml` — it'll be ignored.
 
-8. **Dashboard is local-only**: `apps/web` is NOT deployed. It runs on the laptop with `pnpm dev:web` and points to the Railway API. Deploying it would be a second Railway service (not done — costs extra, not necessary for v1).
+10. **Dashboard is local-only**: `apps/web` is NOT deployed. Runs on the laptop with `pnpm dev:web` and points to the Railway API.
+
+11. **Meta developer account is an alt**: Primary FB account is restricted from developers.facebook.com. The `tgp-bot` app lives under a secondary account. Long-term risk: if Meta connects the accounts, the alt could be flagged.
+
+12. **Test sender is +1 555 642 6683** (Meta-provided). Only whitelisted test recipients can message it. For real customers, we need to onboard a real number via business verification (see TODO).
 
 ---
 
@@ -186,27 +205,27 @@ pnpm dev:web
 # Open http://localhost:3000, log in: admin@example.com / admin123
 ```
 
-### Start the local API (only if you want to test changes before pushing)
+### Start the local API (only if testing changes before pushing)
 ```powershell
 cd C:\Users\Aravind\automations\apps\api
 node node_modules\tsx\dist\cli.mjs src/index.ts
 ```
-(Make sure local Postgres is running. The Railway API runs independently 24/7.)
 
 ### Make code changes
 ```powershell
-# Edit files in apps/api/src or apps/web/app/etc.
 git add -A
 git commit -m "..."
 git push
 # Railway auto-deploys within ~30s
 ```
 
-### Watch Railway deploys
-https://railway.com → luminous-emotion → whatsapp-bot service → Deployments tab
+### Watch Railway deploys / view logs
+https://railway.com → luminous-emotion → whatsapp-bot service → Deployments → View logs
 
-### Trigger a manual redeploy
-On Railway → whatsapp-bot service → click ⋮ on latest deployment → Redeploy
+### Regenerate Meta access token (when bot stops sending)
+1. https://developers.facebook.com → `tgp-bot` → WhatsApp → API Setup
+2. Click "Generate access token", copy
+3. Railway → Variables → edit `WHATSAPP_ACCESS_TOKEN` → paste → Deploy
 
 ### Check Postgres directly (local)
 ```powershell
@@ -220,45 +239,44 @@ $env:PGPASSWORD = "postgres"
 
 ### 🔴 Before going live with real customers
 
-1. **Test the full GREEN → YELLOW → RED flow** — only GREEN has been tested. Need to confirm:
-   - YELLOW: bot answers pricing/eligibility questions accurately
-   - RED: bot sends handoff message, pauses, AND owner gets the 🔥 hot-lead ping on +49 17641239849
+1. **Get a permanent System User access token** (replaces 24h temp token)
+   - Meta Business Manager → Business settings → System users → Create new (Admin role)
+   - Generate token → grant WhatsApp permissions (`whatsapp_business_messaging`, `whatsapp_business_management`)
+   - Token never expires. Paste into Railway as `WHATSAPP_ACCESS_TOKEN`.
 
-2. **Test BLUE** — send "not interested" and confirm bot stops replying. Critical to not annoy uninterested leads (Meta flag risk).
+2. **Business verification** at Meta Business Manager
+   - Upload business documents (PAN/GST for India, website with matching name)
+   - Takes 1-3 days
 
-3. **Customize brand voice + offers in the Settings page**
-   - Currently uses my placeholder defaults
-   - Add real offers (with real prices, real links) — the bot will ONLY mention what's in the offers list
-   - Write Instructions tailored to The German Portal (e.g. "Use Manglish for Kerala leads", "Always emphasize current promotion")
+3. **Onboard a real WhatsApp number**
+   - Add phone number to the WABA (the actual customer-facing number)
+   - OTP-verify it (must be a number with no existing WhatsApp account, or delete WhatsApp from it first)
+   - Pick "The German Portal" as display name (separate ~1-2 day approval)
 
-4. **Change dashboard password from `admin123`**
+4. **Test the full GREEN → YELLOW → RED flow**
+   - Only GREEN tested in Meta test mode. Need YELLOW and RED.
+
+5. **Test BLUE** — confirm bot stops replying on "not interested".
+
+6. **Customize brand voice + offers in Settings page** (currently placeholders).
+
+7. **Change dashboard password** from `admin123`:
    ```powershell
    cd C:\Users\Aravind\automations\apps\api
    node -e "require('./node_modules/bcryptjs').hash('YOUR_NEW_PASSWORD', 12).then(h => console.log(h))"
    ```
-   Copy the hash → update `DASHBOARD_USER_PASSWORD_HASH` on Railway → click Apply
 
-5. **Rotate JWT_SECRET** — currently `tgp_dev_jwt_secret_change_me_b59f3e2c`. Replace with a 32+ char random string on Railway.
+8. **Rotate JWT_SECRET** to a 32+ char random string.
 
-6. **Go Live with a real WhatsApp number** through Gupshup
-   - Click "Begin Go Live" in Gupshup dashboard
-   - Requires: Facebook Business Manager, phone number, display name
-   - Meta approval takes ~1-5 days
-   - Once approved, update `GUPSHUP_SOURCE_NUMBER` env var on Railway
+9. **Add a credit card** to Meta Business Manager for billing (Meta charges per conversation directly).
 
 ### 🟡 Nice to have (not blocking)
 
-7. **Deploy dashboard to Railway** — currently local-only. Would add ~$5/month. Useful if Aravind wants to manage leads from his phone or other devices.
-
-8. **Handle non-text messages** — webhook currently ignores images/voice/stickers. If leads send their passport scan, the bot stays silent. Need to either reply asking for text, or send to OCR.
-
-9. **More AI tuning** — test 10-20 real-style conversations and adjust brand voice / instructions based on what feels off.
-
-10. **Re-engagement flow for BLUE leads** — currently no auto-reply. Could add owner-triggered re-engagement template messages (24h window allowing).
-
-11. **Analytics page** — show conversion rate, average time-to-RED, classifier accuracy. Just an extra page on the dashboard. Data is already logged.
-
-12. **CI/CD checks** — Railway deploys on every push to main. No tests, no PR review. Fine for v1 but should add lint + typecheck on push at some point.
+10. **Deploy dashboard to Railway** (currently local-only, ~$5/month extra).
+11. **Handle non-text messages** (images, voice, stickers currently ignored).
+12. **Re-engagement flow for BLUE leads**.
+13. **Analytics page** (conversion rate, time-to-RED, classifier accuracy).
+14. **CI/CD checks** — lint + typecheck on push.
 
 ---
 
@@ -267,15 +285,15 @@ $env:PGPASSWORD = "postgres"
 ```
 Customer's WhatsApp
        ↓ (1) sends message
-Gupshup (BSP — sandbox: +91 78348 11114)
-       ↓ (2) POST webhook
+Meta WhatsApp Cloud API (test sender: +1 555 642 6683)
+       ↓ (2) POST webhook (HMAC signed)
 Railway API (whatsapp-bot-production-7365.up.railway.app/webhook/whatsapp)
-       ↓ (3) classify + respond
+       ↓ (3) verify signature → classify + respond
    Groq API ←─────────────────────┐
        ↓ (4) save state            │
    Railway Postgres                │
        ↓ (5) send reply            │
-Gupshup API ←───────────────────────
+Meta Graph API ←────────────────────
        ↓ (6) deliver
 Customer's WhatsApp
 
@@ -287,12 +305,13 @@ Owner's laptop → http://localhost:3000 → HTTPS calls → Railway API → liv
 
 ## If anything breaks
 
-1. **Bot stops replying** → check Railway Deployments tab for crashes. View Deploy Logs.
-2. **Dashboard can't connect** → check `apps/web/.env.local` points to right Railway URL.
-3. **Login fails** → verify `DASHBOARD_USER_EMAIL` + `DASHBOARD_USER_PASSWORD_HASH` env vars on Railway match.
-4. **Webhook 401s** → Gupshup signature/auth mismatch. Currently we don't verify HMAC for Gupshup; was relevant only for the deprecated Meta path.
-5. **Database connection fails** → Postgres on Railway may have restarted. Check Railway Postgres service status.
+1. **Bot stops replying with "Authentication Error 190"** → access token expired. Regenerate from Meta API Setup, update Railway, redeploy.
+2. **Bot stops replying with no error in logs** → check Meta dashboard → Webhook is still subscribed to `messages` field. If you redeployed and webhook URL became unreachable temporarily, Meta sometimes unsubscribes.
+3. **Webhook returns 401** → signature mismatch. Verify `WHATSAPP_APP_SECRET` matches the App Secret in Meta → App settings → Basic.
+4. **Dashboard can't connect** → check `apps/web/.env.local` points to right Railway URL.
+5. **Login fails** → verify `DASHBOARD_USER_EMAIL` + `DASHBOARD_USER_PASSWORD_HASH` env vars on Railway match.
+6. **Database connection fails** → Postgres on Railway may have restarted. Check Railway Postgres service status.
 
 ---
 
-*Built with Claude Code over one afternoon (~5 hours), 2026-05-21.*
+*Built with Claude Code over two sessions: 2026-05-21 (initial build + Gupshup wiring), 2026-05-22 (Gupshup → Meta Cloud API migration).*
