@@ -1,55 +1,101 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
+import crypto from 'crypto';
 import { processInbound } from '../services/pipeline.js';
 
 export const webhookRouter: IRouter = Router();
 
-// Gupshup health check (GET)
-webhookRouter.get('/', (_req: Request, res: Response) => {
-  res.status(200).send('OK');
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
+const APP_SECRET = process.env.WHATSAPP_APP_SECRET ?? '';
+
+// Meta verification handshake (GET)
+webhookRouter.get('/', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    res.status(200).send(String(challenge));
+    return;
+  }
+  res.sendStatus(403);
 });
 
-// Gupshup webhook (POST)
-// Payload shape:
+function verifySignature(req: Request): boolean {
+  if (!APP_SECRET) return true;
+  const signature = req.header('x-hub-signature-256');
+  if (!signature) return false;
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!rawBody) return false;
+  const expected =
+    'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(rawBody).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+// Meta webhook (POST)
+// Payload shape (text message):
 // {
-//   "app": "germanportalbot",
-//   "timestamp": ...,
-//   "version": 2,
-//   "type": "message",
-//   "payload": {
-//     "id": "...",
-//     "source": "919876543210",
-//     "type": "text",
-//     "payload": { "text": "Hello" },
-//     "sender": { "phone": "919876543210", "name": "John" }
-//   }
+//   entry: [{
+//     changes: [{
+//       value: {
+//         messaging_product: 'whatsapp',
+//         metadata: { phone_number_id, display_phone_number },
+//         contacts: [{ wa_id, profile: { name } }],
+//         messages: [{ from, id, timestamp, type: 'text', text: { body } }]
+//       },
+//       field: 'messages'
+//     }]
+//   }]
 // }
 webhookRouter.post('/', (req: Request, res: Response) => {
+  if (!verifySignature(req)) {
+    console.warn('Webhook signature mismatch');
+    res.sendStatus(401);
+    return;
+  }
+
   res.sendStatus(200);
 
   const body = req.body as {
-    type?: string;
-    payload?: {
-      id?: string;
-      source?: string;
-      type?: string;
-      payload?: { text?: string };
-      sender?: { phone?: string; name?: string };
-    };
+    entry?: Array<{
+      changes?: Array<{
+        value?: {
+          messages?: Array<{
+            from?: string;
+            id?: string;
+            type?: string;
+            text?: { body?: string };
+          }>;
+          contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>;
+        };
+        field?: string;
+      }>;
+    }>;
   };
 
-  if (body.type !== 'message') return;
+  for (const entry of body.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'messages') continue;
+      const messages = change.value?.messages ?? [];
+      const contacts = change.value?.contacts ?? [];
 
-  const p = body.payload;
-  if (!p || p.type !== 'text') return;
+      for (const m of messages) {
+        if (m.type !== 'text') continue;
 
-  const from = p.sender?.phone ?? p.source;
-  const whatsappId = p.id;
-  const text = p.payload?.text;
-  const name = p.sender?.name;
+        const from = m.from;
+        const whatsappId = m.id;
+        const text = m.text?.body;
+        const name = contacts.find((c) => c.wa_id === from)?.profile?.name;
 
-  if (!from || !whatsappId || !text) return;
+        if (!from || !whatsappId || !text) continue;
 
-  processInbound({ from, name, body: text, whatsappId }).catch((err) =>
-    console.error('Pipeline error:', err)
-  );
+        processInbound({ from, name, body: text, whatsappId }).catch((err) =>
+          console.error('Pipeline error:', err)
+        );
+      }
+    }
+  }
 });

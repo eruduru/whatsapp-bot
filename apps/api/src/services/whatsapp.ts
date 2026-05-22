@@ -1,29 +1,32 @@
-const API_KEY = process.env.GUPSHUP_API_KEY!;
-const APP_NAME = process.env.GUPSHUP_APP_NAME!;
-const SOURCE = process.env.GUPSHUP_SOURCE_NUMBER!;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
+const GRAPH_VERSION = process.env.WHATSAPP_GRAPH_VERSION ?? 'v21.0';
 
 export async function sendWhatsApp(toPhone: string, text: string): Promise<void> {
-  const params = new URLSearchParams({
-    channel: 'whatsapp',
-    source: SOURCE,
-    destination: toPhone,
-    message: JSON.stringify({ type: 'text', text }),
-    'src.name': APP_NAME,
-  });
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`;
 
-  const res = await fetch('https://api.gupshup.io/wa/api/v1/msg', {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      apikey: API_KEY,
-      'Cache-Control': 'no-cache',
+      Authorization: `Bearer ${ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
     },
-    body: params.toString(),
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: toPhone,
+      type: 'text',
+      text: { preview_url: false, body: text },
+    }),
   });
 
-  const data = (await res.json()) as { status?: string; message?: string };
-  if (data.status !== 'submitted') {
-    throw new Error(`Gupshup send failed: ${JSON.stringify(data)}`);
+  const data = (await res.json()) as {
+    messages?: Array<{ id: string }>;
+    error?: { message: string; code: number; type: string };
+  };
+
+  if (!res.ok || data.error) {
+    throw new Error(`Meta send failed: ${JSON.stringify(data.error ?? data)}`);
   }
 }
 

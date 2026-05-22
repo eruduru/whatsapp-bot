@@ -12,7 +12,13 @@ const app = express();
 const PORT = process.env.PORT ?? 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  })
+);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
